@@ -1,30 +1,27 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from schemas import LoanRequest
-
-from predictor import predict_credit
-
+from app.schemas import LoanRequest
+from app.predictor import predict_credit
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.get("/")
-
 def home():
-
     return {
-
-        "message":
-        "AI Credit Scoring API Running"
+        "message": "AI Credit Scoring API Running"
     }
 
 
 @app.post("/predict")
-
 def predict(data: LoanRequest):
-
-    result = predict_credit(
-        data
-    )
-
+    result = predict_credit(data)
     return result
