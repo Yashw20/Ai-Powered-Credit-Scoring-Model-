@@ -1,9 +1,19 @@
+import os
 import joblib
 import pandas as pd
 
-model = joblib.load(
-    "../models/credit_scoring_model.pkl"
+BASE_DIR = os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__))
 )
+
+model_path = os.path.join(
+    BASE_DIR,
+    "models",
+    "credit_scoring_model.pkl"
+)
+
+model = joblib.load(model_path)
+
 
 def predict_credit(data):
 
@@ -17,7 +27,6 @@ def predict_credit(data):
         "pub_rec_bankruptcies": data.pub_rec_bankruptcies
     }])
 
-    # Debug output
     print("\nInput columns sent:")
     print(input_df.columns.tolist())
 
@@ -34,10 +43,8 @@ def predict_credit(data):
 
     if credit_score >= 750:
         risk = "Low"
-
     elif credit_score >= 650:
         risk = "Medium"
-
     else:
         risk = "High"
 
