@@ -429,7 +429,7 @@ if st.button("⚡  Predict Credit Score", use_container_width=True):
                 </div>
                 <div class="report-row">
                     <span class="label">Past Bankruptcies</span>
-                    <span class="value {'flag' if pub_rec_bankruptcies > 0 else 'good'}">{pub_rec_bankruptcies}</span>
+                    <span style="color: {'#ff6b6b' if pub_rec_bankruptcies > 0 else '#00c9a7'}">{pub_rec_bankruptcies}</span>
                 </div>
             </div>
 
