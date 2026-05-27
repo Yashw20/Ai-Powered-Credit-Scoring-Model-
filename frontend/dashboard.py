@@ -362,9 +362,9 @@ if st.button("⚡  Predict Credit Score", use_container_width=True):
             </div>"""
 
         factors_html = (
-            rate_factor("Interest Rate", f"{int_rate}%", 10, 20, higher_is_bad=True) +
-            rate_factor("Debt-to-Income Ratio", f"{dti}", 15, 30, higher_is_bad=True) +
-            rate_factor("Loan-to-Income Ratio", f"{loan_amnt/annual_inc:.2f}", 0.2, 0.5, higher_is_bad=True) +
+            rate_factor("Interest Rate", int_rate, 10, 20, higher_is_bad=True) +
+            rate_factor("Debt-to-Income Ratio", dti, 15, 30, higher_is_bad=True) +
+            rate_factor("Loan-to-Income Ratio", round(loan_amnt/annual_inc, 2), 0.2, 0.5, higher_is_bad=True) +
             rate_factor("Total Accounts", total_acc, 10, 20, higher_is_bad=False) +
             rate_factor("Mortgage Accounts", mort_acc, 1, 3, higher_is_bad=False) +
             rate_factor("Past Bankruptcies", pub_rec_bankruptcies, 0, 0, higher_is_bad=True)
