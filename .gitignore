@@ -1,5 +1,10 @@
-
+venv/
 app/venv/
 **/__pycache__/
 *.pyc
 .ipynb_checkpoints/
+*.egg-info/
+.env
+dist/
+build/
+ 
