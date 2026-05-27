@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import os
+from datetime import datetime
 
 API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
 
@@ -56,13 +57,6 @@ st.markdown("""
 }
 
 /* ── Section Cards ── */
-.section-card {
-    background: #1a1d27;
-    border: 0.5px solid #2a2d3e;
-    border-radius: 14px;
-    padding: 22px 24px;
-    margin-bottom: 20px;
-}
 .section-title {
     font-size: 11px;
     font-weight: 600;
@@ -80,6 +74,76 @@ st.markdown("""
     background: linear-gradient(135deg, #6c63ff, #00c9a7);
     display: inline-block;
 }
+
+/* ── Report card ── */
+.report-card {
+    background: #1a1d27;
+    border: 0.5px solid #2a2d3e;
+    border-radius: 14px;
+    padding: 24px 28px;
+    margin-top: 24px;
+}
+.report-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #e8eaf6;
+    margin-bottom: 4px;
+}
+.report-subtitle {
+    font-size: 12px;
+    color: #8b90a7;
+    margin-bottom: 20px;
+}
+.report-section {
+    margin-bottom: 20px;
+}
+.report-section-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #6c63ff;
+    margin-bottom: 10px;
+    border-bottom: 0.5px solid #2a2d3e;
+    padding-bottom: 6px;
+}
+.report-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 13px;
+    border-bottom: 0.5px solid #1e2130;
+}
+.report-row .label { color: #8b90a7; }
+.report-row .value { color: #e8eaf6; font-weight: 500; }
+.report-row .value.flag { color: #ff6b6b; }
+.report-row .value.good { color: #00c9a7; }
+.report-row .value.warn { color: #ffa94d; }
+.score-badge {
+    display: inline-block;
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-top: 8px;
+}
+.score-low  { background: rgba(0,201,167,0.15); color: #00c9a7; border: 0.5px solid rgba(0,201,167,0.4); }
+.score-med  { background: rgba(255,169,77,0.15); color: #ffa94d; border: 0.5px solid rgba(255,169,77,0.4); }
+.score-high { background: rgba(255,107,107,0.15); color: #ff6b6b; border: 0.5px solid rgba(255,107,107,0.4); }
+.factor-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 0;
+    font-size: 13px;
+    border-bottom: 0.5px solid #1e2130;
+}
+.factor-icon { font-size: 15px; }
+.factor-label { color: #8b90a7; flex: 1; }
+.factor-impact { font-weight: 500; }
+.impact-neg { color: #ff6b6b; }
+.impact-pos { color: #00c9a7; }
+.impact-neu { color: #ffa94d; }
 
 /* ── Number inputs ── */
 div[data-testid="stNumberInput"] input {
@@ -265,6 +329,141 @@ if st.button("⚡  Predict Credit Score", use_container_width=True):
             st.warning("⚠️  Moderate risk applicant — review carefully.")
         else:
             st.error("❌  High risk applicant — significant default indicators detected.")
+
+        # ── Risk Report ─────────────────────────────────────────────────────
+        prob       = result["default_probability"]
+        score      = result["credit_score"]
+        risk       = result["risk"]
+        now        = datetime.now().strftime("%d %B %Y, %I:%M %p")
+        badge_cls  = "score-low" if risk == "Low" else ("score-med" if risk == "Medium" else "score-high")
+        badge_icon = "✅" if risk == "Low" else ("⚠️" if risk == "Medium" else "❌")
+
+        # ── Factor analysis ──────────────────────────────────────────────────
+        def rate_factor(label, value, low_thresh, high_thresh, higher_is_bad=True):
+            if higher_is_bad:
+                if value <= low_thresh:
+                    cls, icon, impact = "impact-pos", "✅", "Low impact"
+                elif value <= high_thresh:
+                    cls, icon, impact = "impact-neu", "⚠️", "Moderate impact"
+                else:
+                    cls, icon, impact = "impact-neg", "🔴", "High impact"
+            else:
+                if value >= high_thresh:
+                    cls, icon, impact = "impact-pos", "✅", "Positive factor"
+                elif value >= low_thresh:
+                    cls, icon, impact = "impact-neu", "⚠️", "Moderate factor"
+                else:
+                    cls, icon, impact = "impact-neg", "🔴", "Weak factor"
+            return f"""
+            <div class="factor-row">
+                <span class="factor-icon">{icon}</span>
+                <span class="factor-label">{label} — <b style="color:#e8eaf6">{value}</b></span>
+                <span class="factor-impact {cls}">{impact}</span>
+            </div>"""
+
+        factors_html = (
+            rate_factor("Interest Rate", f"{int_rate}%", 10, 20, higher_is_bad=True) +
+            rate_factor("Debt-to-Income Ratio", f"{dti}", 15, 30, higher_is_bad=True) +
+            rate_factor("Loan-to-Income Ratio", f"{loan_amnt/annual_inc:.2f}", 0.2, 0.5, higher_is_bad=True) +
+            rate_factor("Total Accounts", total_acc, 10, 20, higher_is_bad=False) +
+            rate_factor("Mortgage Accounts", mort_acc, 1, 3, higher_is_bad=False) +
+            rate_factor("Past Bankruptcies", pub_rec_bankruptcies, 0, 0, higher_is_bad=True)
+        )
+
+        # ── Recommendation ───────────────────────────────────────────────────
+        if risk == "Low":
+            recommendation = "This applicant presents a strong credit profile. Loan approval is recommended with standard terms."
+        elif risk == "Medium":
+            recommendation = "This applicant presents moderate risk. Consider approval with higher interest rate or reduced loan amount. Request additional documentation."
+        else:
+            recommendation = "This applicant presents significant default risk. Loan approval is not recommended. If proceeding, require collateral and co-signer."
+
+        st.markdown(f"""
+        <div class="report-card">
+            <div class="report-title">📋 Credit Risk Report</div>
+            <div class="report-subtitle">Generated on {now}</div>
+
+            <div class="report-section">
+                <div class="report-section-title">Summary</div>
+                <div class="report-row">
+                    <span class="label">Credit Score</span>
+                    <span class="value">{score} / 850</span>
+                </div>
+                <div class="report-row">
+                    <span class="label">Default Probability</span>
+                    <span class="value">{prob * 100:.1f}%</span>
+                </div>
+                <div class="report-row">
+                    <span class="label">Risk Classification</span>
+                    <span class="value">
+                        <span class="score-badge {badge_cls}">{badge_icon} {risk} Risk</span>
+                    </span>
+                </div>
+            </div>
+
+            <div class="report-section">
+                <div class="report-section-title">Applicant Data</div>
+                <div class="report-row">
+                    <span class="label">Loan Amount</span>
+                    <span class="value">${loan_amnt:,}</span>
+                </div>
+                <div class="report-row">
+                    <span class="label">Annual Income</span>
+                    <span class="value">${annual_inc:,}</span>
+                </div>
+                <div class="report-row">
+                    <span class="label">Interest Rate</span>
+                    <span class="value">{int_rate}%</span>
+                </div>
+                <div class="report-row">
+                    <span class="label">Debt-to-Income Ratio</span>
+                    <span class="value">{dti}</span>
+                </div>
+                <div class="report-row">
+                    <span class="label">Total Accounts</span>
+                    <span class="value">{total_acc}</span>
+                </div>
+                <div class="report-row">
+                    <span class="label">Mortgage Accounts</span>
+                    <span class="value">{mort_acc}</span>
+                </div>
+                <div class="report-row">
+                    <span class="label">Past Bankruptcies</span>
+                    <span class="value {'flag' if pub_rec_bankruptcies > 0 else 'good'}">{pub_rec_bankruptcies}</span>
+                </div>
+            </div>
+
+            <div class="report-section">
+                <div class="report-section-title">Factor Analysis</div>
+                {factors_html}
+            </div>
+
+            <div class="report-section">
+                <div class="report-section-title">How the Score was Calculated</div>
+                <div class="report-row">
+                    <span class="label">Base Score</span>
+                    <span class="value">300</span>
+                </div>
+                <div class="report-row">
+                    <span class="label">ML Model Adjustment</span>
+                    <span class="value">+{score - 300} pts (based on default probability {prob * 100:.1f}%)</span>
+                </div>
+                <div class="report-row">
+                    <span class="label">Formula</span>
+                    <span class="value">300 + (1 − {prob:.3f}) × 550</span>
+                </div>
+                <div class="report-row">
+                    <span class="label">Final Score</span>
+                    <span class="value good">{score}</span>
+                </div>
+            </div>
+
+            <div class="report-section" style="margin-bottom:0">
+                <div class="report-section-title">Recommendation</div>
+                <p style="color:#c8cad8; font-size:13px; line-height:1.6; margin:0">{recommendation}</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     except requests.exceptions.ConnectionError:
         st.error("Could not connect to the prediction API — make sure your FastAPI server is running.")
