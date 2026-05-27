@@ -335,10 +335,22 @@ if st.button("⚡  Predict Credit Score", use_container_width=True):
         score      = result["credit_score"]
         risk       = result["risk"]
         now        = datetime.now().strftime("%d %B %Y, %I:%M %p")
-        badge_cls  = "score-low" if risk == "Low" else ("score-med" if risk == "Medium" else "score-high")
-        badge_icon = "✅" if risk == "Low" else ("⚠️" if risk == "Medium" else "❌")
 
-        # ── Factor analysis ──────────────────────────────────────────────────
+        if risk == "Low":
+            badge_cls  = "score-low"
+            badge_icon = "✅"
+            recommendation = "This applicant presents a strong credit profile. Loan approval is recommended with standard terms."
+        elif risk == "Medium":
+            badge_cls  = "score-med"
+            badge_icon = "⚠️"
+            recommendation = "This applicant presents moderate risk. Consider approval with higher interest rate or reduced loan amount. Request additional documentation."
+        else:
+            badge_cls  = "score-high"
+            badge_icon = "❌"
+            recommendation = "This applicant presents significant default risk. Loan approval is not recommended. If proceeding, require collateral and co-signer."
+
+        bk_color = "#ff6b6b" if pub_rec_bankruptcies > 0 else "#00c9a7"
+
         def rate_factor(label, value, low_thresh, high_thresh, higher_is_bad=True):
             if higher_is_bad:
                 if value <= low_thresh:
@@ -354,12 +366,13 @@ if st.button("⚡  Predict Credit Score", use_container_width=True):
                     cls, icon, impact = "impact-neu", "⚠️", "Moderate factor"
                 else:
                     cls, icon, impact = "impact-neg", "🔴", "Weak factor"
-            return f"""
-            <div class="factor-row">
-                <span class="factor-icon">{icon}</span>
-                <span class="factor-label">{label} — <b style="color:#e8eaf6">{value}</b></span>
-                <span class="factor-impact {cls}">{impact}</span>
-            </div>"""
+            return (
+                "<div class=\"factor-row\">"
+                "<span class=\"factor-icon\">" + icon + "</span>"
+                "<span class=\"factor-label\">" + label + " — <b style=\"color:#e8eaf6\">" + str(value) + "</b></span>"
+                "<span class=\"factor-impact " + cls + "\">" + impact + "</span>"
+                "</div>"
+            )
 
         factors_html = (
             rate_factor("Interest Rate", int_rate, 10, 20, higher_is_bad=True) +
@@ -370,100 +383,52 @@ if st.button("⚡  Predict Credit Score", use_container_width=True):
             rate_factor("Past Bankruptcies", pub_rec_bankruptcies, 0, 0, higher_is_bad=True)
         )
 
-        # ── Recommendation ───────────────────────────────────────────────────
-        if risk == "Low":
-            recommendation = "This applicant presents a strong credit profile. Loan approval is recommended with standard terms."
-        elif risk == "Medium":
-            recommendation = "This applicant presents moderate risk. Consider approval with higher interest rate or reduced loan amount. Request additional documentation."
-        else:
-            recommendation = "This applicant presents significant default risk. Loan approval is not recommended. If proceeding, require collateral and co-signer."
+        report_html = (
+            "<div class=\"report-card\">"
+            "<div class=\"report-title\">📋 Credit Risk Report</div>"
+            "<div class=\"report-subtitle\">Generated on " + now + "</div>"
 
-        st.markdown(f"""
-        <div class="report-card">
-            <div class="report-title">📋 Credit Risk Report</div>
-            <div class="report-subtitle">Generated on {now}</div>
+            "<div class=\"report-section\">"
+            "<div class=\"report-section-title\">Summary</div>"
+            "<div class=\"report-row\"><span class=\"label\">Credit Score</span><span class=\"value\">" + str(score) + " / 850</span></div>"
+            "<div class=\"report-row\"><span class=\"label\">Default Probability</span><span class=\"value\">" + str(round(prob*100,1)) + "%</span></div>"
+            "<div class=\"report-row\"><span class=\"label\">Risk Classification</span>"
+            "<span class=\"score-badge " + badge_cls + "\">" + badge_icon + " " + risk + " Risk</span></div>"
+            "</div>"
 
-            <div class="report-section">
-                <div class="report-section-title">Summary</div>
-                <div class="report-row">
-                    <span class="label">Credit Score</span>
-                    <span class="value">{score} / 850</span>
-                </div>
-                <div class="report-row">
-                    <span class="label">Default Probability</span>
-                    <span class="value">{prob * 100:.1f}%</span>
-                </div>
-                <div class="report-row">
-                    <span class="label">Risk Classification</span>
-                    <span class="value">
-                        <span class="score-badge {badge_cls}">{badge_icon} {risk} Risk</span>
-                    </span>
-                </div>
-            </div>
+            "<div class=\"report-section\">"
+            "<div class=\"report-section-title\">Applicant Data</div>"
+            "<div class=\"report-row\"><span class=\"label\">Loan Amount</span><span class=\"value\">$" + "{:,}".format(loan_amnt) + "</span></div>"
+            "<div class=\"report-row\"><span class=\"label\">Annual Income</span><span class=\"value\">$" + "{:,}".format(annual_inc) + "</span></div>"
+            "<div class=\"report-row\"><span class=\"label\">Interest Rate</span><span class=\"value\">" + str(int_rate) + "%</span></div>"
+            "<div class=\"report-row\"><span class=\"label\">Debt-to-Income Ratio</span><span class=\"value\">" + str(dti) + "</span></div>"
+            "<div class=\"report-row\"><span class=\"label\">Total Accounts</span><span class=\"value\">" + str(total_acc) + "</span></div>"
+            "<div class=\"report-row\"><span class=\"label\">Mortgage Accounts</span><span class=\"value\">" + str(mort_acc) + "</span></div>"
+            "<div class=\"report-row\"><span class=\"label\">Past Bankruptcies</span>"
+            "<span class=\"value\" style=\"color:" + bk_color + "\">" + str(pub_rec_bankruptcies) + "</span></div>"
+            "</div>"
 
-            <div class="report-section">
-                <div class="report-section-title">Applicant Data</div>
-                <div class="report-row">
-                    <span class="label">Loan Amount</span>
-                    <span class="value">${loan_amnt:,}</span>
-                </div>
-                <div class="report-row">
-                    <span class="label">Annual Income</span>
-                    <span class="value">${annual_inc:,}</span>
-                </div>
-                <div class="report-row">
-                    <span class="label">Interest Rate</span>
-                    <span class="value">{int_rate}%</span>
-                </div>
-                <div class="report-row">
-                    <span class="label">Debt-to-Income Ratio</span>
-                    <span class="value">{dti}</span>
-                </div>
-                <div class="report-row">
-                    <span class="label">Total Accounts</span>
-                    <span class="value">{total_acc}</span>
-                </div>
-                <div class="report-row">
-                    <span class="label">Mortgage Accounts</span>
-                    <span class="value">{mort_acc}</span>
-                </div>
-                <div class="report-row">
-                    <span class="label">Past Bankruptcies</span>
-                    <span style="color: {'#ff6b6b' if pub_rec_bankruptcies > 0 else '#00c9a7'}">{pub_rec_bankruptcies}</span>
-                </div>
-            </div>
+            "<div class=\"report-section\">"
+            "<div class=\"report-section-title\">Factor Analysis</div>"
+            + factors_html +
+            "</div>"
 
-            <div class="report-section">
-                <div class="report-section-title">Factor Analysis</div>
-                {factors_html}
-            </div>
+            "<div class=\"report-section\">"
+            "<div class=\"report-section-title\">How the Score was Calculated</div>"
+            "<div class=\"report-row\"><span class=\"label\">Base Score</span><span class=\"value\">300</span></div>"
+            "<div class=\"report-row\"><span class=\"label\">ML Model Adjustment</span><span class=\"value\">+" + str(score-300) + " pts (default prob " + str(round(prob*100,1)) + "%)</span></div>"
+            "<div class=\"report-row\"><span class=\"label\">Formula</span><span class=\"value\">300 + (1 - " + str(round(prob,3)) + ") x 550</span></div>"
+            "<div class=\"report-row\"><span class=\"label\">Final Score</span><span class=\"value good\">" + str(score) + "</span></div>"
+            "</div>"
 
-            <div class="report-section">
-                <div class="report-section-title">How the Score was Calculated</div>
-                <div class="report-row">
-                    <span class="label">Base Score</span>
-                    <span class="value">300</span>
-                </div>
-                <div class="report-row">
-                    <span class="label">ML Model Adjustment</span>
-                    <span class="value">+{score - 300} pts (based on default probability {prob * 100:.1f}%)</span>
-                </div>
-                <div class="report-row">
-                    <span class="label">Formula</span>
-                    <span class="value">300 + (1 − {prob:.3f}) × 550</span>
-                </div>
-                <div class="report-row">
-                    <span class="label">Final Score</span>
-                    <span class="value good">{score}</span>
-                </div>
-            </div>
+            "<div class=\"report-section\" style=\"margin-bottom:0\">"
+            "<div class=\"report-section-title\">Recommendation</div>"
+            "<p style=\"color:#c8cad8; font-size:13px; line-height:1.6; margin:0\">" + recommendation + "</p>"
+            "</div>"
+            "</div>"
+        )
 
-            <div class="report-section" style="margin-bottom:0">
-                <div class="report-section-title">Recommendation</div>
-                <p style="color:#c8cad8; font-size:13px; line-height:1.6; margin:0">{recommendation}</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(report_html, unsafe_allow_html=True)
 
     except requests.exceptions.ConnectionError:
         st.error("Could not connect to the prediction API — make sure your FastAPI server is running.")
