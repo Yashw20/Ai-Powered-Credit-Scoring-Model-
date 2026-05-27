@@ -308,6 +308,9 @@ if st.button("⚡  Predict Credit Score", use_container_width=True):
 
     try:
         response = requests.post(f"{API_URL}/predict", json=data, timeout=10)
+        if response.status_code != 200:
+            st.error(f"API error {response.status_code}: {response.text}")
+            st.stop()
         result = response.json()
 
         st.markdown("""
