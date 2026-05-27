@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import os
 from datetime import datetime
+import plotly.graph_objects as go
 
 API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
 
@@ -329,6 +330,124 @@ if st.button("⚡  Predict Credit Score", use_container_width=True):
             st.warning("⚠️  Moderate risk applicant — review carefully.")
         else:
             st.error("❌  High risk applicant — significant default indicators detected.")
+
+        # ── Charts ──────────────────────────────────────────────────────────
+        prob  = result["default_probability"]
+        score = result["credit_score"]
+        risk  = result["risk"]
+
+        ch1, ch2, ch3 = st.columns(3)
+
+        # 1. Credit Score Gauge
+        with ch1:
+            gauge_color = "#00c9a7" if score >= 750 else ("#ffa94d" if score >= 650 else "#ff6b6b")
+            fig_gauge = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=score,
+                title={"text": "Credit Score", "font": {"color": "#8b90a7", "size": 13}},
+                number={"font": {"color": gauge_color, "size": 36}},
+                gauge={
+                    "axis": {"range": [300, 850], "tickcolor": "#8b90a7", "tickfont": {"color": "#8b90a7", "size": 10}},
+                    "bar": {"color": gauge_color, "thickness": 0.3},
+                    "bgcolor": "#12141e",
+                    "bordercolor": "#2a2d3e",
+                    "steps": [
+                        {"range": [300, 650], "color": "rgba(255,107,107,0.15)"},
+                        {"range": [650, 750], "color": "rgba(255,169,77,0.15)"},
+                        {"range": [750, 850], "color": "rgba(0,201,167,0.15)"},
+                    ],
+                    "threshold": {"line": {"color": gauge_color, "width": 3}, "thickness": 0.75, "value": score}
+                }
+            ))
+            fig_gauge.update_layout(
+                paper_bgcolor="rgba(26,29,39,1)",
+                plot_bgcolor="rgba(26,29,39,1)",
+                font={"color": "#e8eaf6"},
+                height=220,
+                margin=dict(l=20, r=20, t=40, b=10)
+            )
+            st.plotly_chart(fig_gauge, use_container_width=True)
+
+        # 2. Default Probability Bar
+        with ch2:
+            safe_pct  = round((1 - prob) * 100, 1)
+            risk_pct  = round(prob * 100, 1)
+            fig_bar = go.Figure()
+            fig_bar.add_trace(go.Bar(
+                name="Safe",
+                x=["Probability"],
+                y=[safe_pct],
+                marker_color="#00c9a7",
+                marker_line_width=0,
+                width=0.4
+            ))
+            fig_bar.add_trace(go.Bar(
+                name="Default Risk",
+                x=["Probability"],
+                y=[risk_pct],
+                marker_color="#ff6b6b",
+                marker_line_width=0,
+                width=0.4
+            ))
+            fig_bar.update_layout(
+                barmode="stack",
+                title={"text": "Default Probability", "font": {"color": "#8b90a7", "size": 13}, "x": 0.5},
+                paper_bgcolor="rgba(26,29,39,1)",
+                plot_bgcolor="rgba(26,29,39,1)",
+                font={"color": "#e8eaf6"},
+                height=220,
+                margin=dict(l=20, r=20, t=40, b=10),
+                legend={"font": {"size": 11}, "bgcolor": "rgba(0,0,0,0)"},
+                yaxis={"range": [0, 100], "ticksuffix": "%", "gridcolor": "#2a2d3e", "tickfont": {"color": "#8b90a7"}},
+                xaxis={"tickfont": {"color": "#8b90a7"}}
+            )
+            fig_bar.add_annotation(
+                x=0, y=risk_pct/2,
+                text=f"{risk_pct}%",
+                showarrow=False,
+                font={"color": "#fff", "size": 14, "family": "Arial Black"}
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+        # 3. Radar Chart
+        with ch3:
+            def norm(val, lo, hi):
+                return max(0, min(1, (val - lo) / (hi - lo)))
+
+            # Invert bad factors so higher = better on radar
+            r_income   = norm(annual_inc, 20000, 150000)
+            r_accounts = norm(total_acc, 0, 40)
+            r_mortgage = norm(mort_acc, 0, 5)
+            r_rate     = 1 - norm(int_rate, 0, 30)
+            r_dti      = 1 - norm(dti, 0, 50)
+            r_bk       = 1 - norm(pub_rec_bankruptcies, 0, 3)
+
+            categories = ["Income", "Accounts", "Mortgage", "Low Rate", "Low DTI", "No Bankrupt"]
+            values     = [r_income, r_accounts, r_mortgage, r_rate, r_dti, r_bk]
+            values_pct = [round(v * 100) for v in values]
+
+            fig_radar = go.Figure(go.Scatterpolar(
+                r=values_pct + [values_pct[0]],
+                theta=categories + [categories[0]],
+                fill="toself",
+                fillcolor="rgba(108,99,255,0.2)",
+                line={"color": "#6c63ff", "width": 2},
+                marker={"color": "#6c63ff", "size": 5}
+            ))
+            fig_radar.update_layout(
+                polar={
+                    "radialaxis": {"visible": True, "range": [0, 100], "gridcolor": "#2a2d3e", "tickfont": {"color": "#8b90a7", "size": 9}},
+                    "angularaxis": {"tickfont": {"color": "#8b90a7", "size": 10}, "gridcolor": "#2a2d3e"},
+                    "bgcolor": "rgba(18,20,30,1)"
+                },
+                title={"text": "Risk Factor Radar", "font": {"color": "#8b90a7", "size": 13}, "x": 0.5},
+                paper_bgcolor="rgba(26,29,39,1)",
+                font={"color": "#e8eaf6"},
+                height=220,
+                margin=dict(l=30, r=30, t=40, b=10),
+                showlegend=False
+            )
+            st.plotly_chart(fig_radar, use_container_width=True)
 
         # ── Risk Report ─────────────────────────────────────────────────────
         prob       = result["default_probability"]
