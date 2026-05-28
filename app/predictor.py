@@ -9,14 +9,13 @@ BASE_DIR = os.path.dirname(
 model_path = os.path.join(
     BASE_DIR,
     "models",
-    "credit_scoring_model.pkl"
+    "credit_scoring_model_v2.pkl"
 )
 
 model = joblib.load(model_path)
 
 
 def predict_credit(data):
-
     input_df = pd.DataFrame([{
         "loan_amnt": data.loan_amnt,
         "int_rate": data.int_rate,
@@ -24,7 +23,12 @@ def predict_credit(data):
         "dti": data.dti,
         "total_acc": data.total_acc,
         "mort_acc": data.mort_acc,
-        "pub_rec_bankruptcies": data.pub_rec_bankruptcies
+        "pub_rec_bankruptcies": data.pub_rec_bankruptcies,
+        # engineered features
+        "loan_to_income": data.loan_amnt / (data.annual_inc + 1),
+        "debt_burden": data.dti * data.int_rate,
+        "risk_index": data.pub_rec_bankruptcies * 10 + data.dti,
+        "monthly_payment_ratio": data.loan_amnt / (data.annual_inc / 12 + 1)
     }])
 
     print("\nInput columns sent:")

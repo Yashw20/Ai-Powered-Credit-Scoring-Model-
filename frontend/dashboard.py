@@ -554,3 +554,5 @@ if st.button("⚡  Predict Credit Score", use_container_width=True):
 
     except requests.exceptions.ConnectionError:
         st.error("Could not connect to the prediction API — make sure your FastAPI server is running.")
+
+    
