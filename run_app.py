@@ -1,26 +1,27 @@
 import subprocess
-import sys
 import time
+import os
 
 print("🚀 Starting background FastAPI backend on 127.0.0.1:8000...")
-# Launch the FastAPI backend locally in the background
+# Launch the FastAPI backend locally using global module execution
 backend_process = subprocess.Popen([
-    sys.executable, "-m", "uvicorn", "app.main:app",
+    "python", "-m", "uvicorn", "app.main:app",
     "--host", "127.0.0.1",
     "--port", "8000"
 ])
 
-# Give the backend 3 seconds to spin up completely
-time.sleep(3)
+# Give the backend 4 seconds to fully spin up and bind to port 8000
+time.sleep(4)
 
 print("🎨 Launching Streamlit frontend dashboard on port 10000...")
-# Launch the Streamlit frontend (This process stays in the foreground for Render)
+# Launch the Streamlit frontend in the foreground
 try:
     subprocess.run([
-        sys.executable, "-m", "streamlit", "run", "frontend/dashboard.py",
+        "python", "-m", "streamlit", "run", "frontend/dashboard.py",
         "--server.port", "10000",
         "--server.address", "0.0.0.0"
     ], check=True)
 finally:
-    # Safely terminate the backend if Streamlit closes or crashes
+    # Ensure backend closes if frontend goes down
+    print("🛑 Shutting down backend processes...")
     backend_process.terminate()
