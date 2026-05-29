@@ -9,55 +9,59 @@ BASE_DIR = os.path.dirname(
 model_path = os.path.join(
     BASE_DIR,
     "models",
-    "credit_scoring_model_v2.pkl"
+    "credit_scoring_model.pkl"
 )
 
-artifacts = joblib.load(model_path)
-model    = artifacts["model"]
-imputer  = artifacts["imputer"]
-scaler   = artifacts["scaler"]
-features = artifacts["features"]
+# Load FULL pipeline directly
+model = joblib.load(model_path)
 
 print("Model loaded successfully")
-print("Features:", features)
 
 
 def predict_credit(data):
 
     input_dict = {
+
         "loan_amnt": data.loan_amnt,
         "int_rate": data.int_rate,
         "annual_inc": data.annual_inc,
         "dti": data.dti,
         "total_acc": data.total_acc,
         "mort_acc": data.mort_acc,
-        "pub_rec_bankruptcies": data.pub_rec_bankruptcies,
-        "loan_to_income": data.loan_amnt / (data.annual_inc + 1),
-        "debt_burden": data.dti * data.int_rate,
-        "risk_index": data.pub_rec_bankruptcies * 10 + data.dti,
-        "monthly_payment_ratio": data.loan_amnt / (data.annual_inc / 12 + 1)
+        "pub_rec_bankruptcies": data.pub_rec_bankruptcies
+
     }
 
-    input_df = pd.DataFrame([input_dict])[features]
+    # Convert to dataframe
+    input_df = pd.DataFrame([input_dict])
 
-    print("\nInput columns sent:")
-    print(input_df.columns.tolist())
+    print("\nInput Data:")
+    print(input_df)
 
-    X = scaler.transform(imputer.transform(input_df))
+    # Pipeline handles preprocessing automatically
+    probability = model.predict_proba(input_df)[0][1]
 
-    probability = model.predict_proba(X)[0][1]
+    credit_score = int(
+        300 + ((1 - probability) * 550)
+    )
 
-    credit_score = int(300 + ((1 - probability) * 550))
-
+    # Risk category
     if credit_score >= 750:
         risk = "Low"
+
     elif credit_score >= 650:
         risk = "Medium"
+
     else:
         risk = "High"
 
     return {
-        "default_probability": round(float(probability), 3),
+
+        "default_probability": round(
+            float(probability), 3
+        ),
+
         "credit_score": credit_score,
+
         "risk": risk
     }
