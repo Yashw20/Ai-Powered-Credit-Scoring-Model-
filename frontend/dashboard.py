@@ -294,23 +294,28 @@ with col2:
 st.divider()
 
 # ── Predict button ───────────────────────────────────────────────────────────
-if st.button("⚡  Predict Credit Score", use_container_width=True):
+if st.button("⚡   Predict Credit Score", use_container_width=True):
 
+    # Explicitly casting numbers to guarantee correct type processing by backend Pipelines
     data = {
-        "loan_amnt": loan_amnt,
-        "int_rate": int_rate,
-        "annual_inc": annual_inc,
-        "dti": dti,
-        "total_acc": total_acc,
-        "mort_acc": mort_acc,
-        "pub_rec_bankruptcies": pub_rec_bankruptcies,
+        "loan_amnt": float(loan_amnt),
+        "int_rate": float(int_rate),
+        "annual_inc": float(annual_inc),
+        "dti": float(dti),
+        "total_acc": int(total_acc),
+        "mort_acc": int(mort_acc),
+        "pub_rec_bankruptcies": int(pub_rec_bankruptcies),
     }
 
     try:
-        response = requests.post(f"{API_URL}/predict", json=data, timeout=10)
+        # Strip trailing slash if present to avoid dual-slash errors like //predict
+        endpoint_url = f"{API_URL.rstrip('/')}/predict"
+        response = requests.post(endpoint_url, json=data, timeout=15)
+        
         if response.status_code != 200:
-            st.error(f"API error {response.status_code}: {response.text}")
+            st.error(f"⚠️ API Server Error {response.status_code}: {response.text}")
             st.stop()
+            
         result = response.json()
 
         st.markdown("""
@@ -328,11 +333,11 @@ if st.button("⚡  Predict Credit Score", use_container_width=True):
             st.metric("Risk Level", result["risk"])
 
         if result["risk"] == "Low":
-            st.success("✅  Low risk applicant — strong credit profile.")
+            st.success("✅   Low risk applicant — strong credit profile.")
         elif result["risk"] == "Medium":
-            st.warning("⚠️  Moderate risk applicant — review carefully.")
+            st.warning("⚠️   Moderate risk applicant — review carefully.")
         else:
-            st.error("❌  High risk applicant — significant default indicators detected.")
+            st.error("❌   High risk applicant — significant default indicators detected.")
 
         # ── Charts ──────────────────────────────────────────────────────────
         prob  = result["default_probability"]
@@ -453,9 +458,6 @@ if st.button("⚡  Predict Credit Score", use_container_width=True):
             st.plotly_chart(fig_radar, use_container_width=True)
 
         # ── Risk Report ─────────────────────────────────────────────────────
-        prob       = result["default_probability"]
-        score      = result["credit_score"]
-        risk       = result["risk"]
         now        = datetime.now().strftime("%d %B %Y, %I:%M %p")
 
         if risk == "Low":
@@ -553,6 +555,4 @@ if st.button("⚡  Predict Credit Score", use_container_width=True):
         st.markdown(report_html, unsafe_allow_html=True)
 
     except requests.exceptions.ConnectionError:
-        st.error("Could not connect to the prediction API — make sure your FastAPI server is running.")
-
-    
+        st.error("Could not connect to the prediction API — make sure your FastAPI server is running and accessible.")
