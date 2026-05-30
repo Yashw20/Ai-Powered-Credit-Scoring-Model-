@@ -9,7 +9,7 @@ BASE_DIR = os.path.dirname(
 model_path = os.path.join(
     BASE_DIR,
     "models",
-    "credit_scoring_model_v2.pkl"
+    "credit_scoring_model.pkl"
 )
 
 artifacts = joblib.load(model_path)
