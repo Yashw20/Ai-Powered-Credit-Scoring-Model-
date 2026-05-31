@@ -1,8 +1,10 @@
 """
 AI Credit Scoring — Streamlit Dashboard
-Robust, dynamic UI with validation, error handling, session state,
-caching, downloadable report, and graceful API failure modes.
+Redesigned: editorial light theme, sidebar-driven inputs, tabbed results.
+Same prediction parameters and API contract as the original.
 """
+
+from __future__ import annotations
 
 import json
 import os
@@ -13,498 +15,419 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 # Config
-# ──────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
-REQUEST_TIMEOUT = int(os.getenv("API_TIMEOUT", "15"))
+API_TIMEOUT = float(os.getenv("API_TIMEOUT", "15"))
+
+FIELDS = [
+    ("loan_amnt", "Loan amount", "USD", 1000.0, 1_000_000.0, 15000.0, 500.0),
+    ("annual_inc", "Annual income", "USD", 0.0, 10_000_000.0, 75000.0, 1000.0),
+    ("int_rate", "Interest rate", "%", 0.0, 50.0, 12.5, 0.1),
+    ("dti", "Debt-to-income", "%", 0.0, 100.0, 18.0, 0.5),
+    ("total_acc", "Total credit accounts", "#", 0.0, 200.0, 12.0, 1.0),
+    ("mort_acc", "Mortgage accounts", "#", 0.0, 50.0, 1.0, 1.0),
+    ("pub_rec_bankruptcies", "Public bankruptcies", "#", 0.0, 20.0, 0.0, 1.0),
+]
 
 st.set_page_config(
-    page_title="AI Credit Scoring",
-    page_icon="💳",
+    page_title="Lumen · Credit Scoring",
+    page_icon="◐",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Theme / CSS
-# ──────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Styling — editorial / serif / muted-paper aesthetic (opposite of prior dark)
+# ---------------------------------------------------------------------------
 st.markdown(
     """
 <style>
-.stApp{background:linear-gradient(135deg,#0f1117 0%,#12151f 50%,#0d1020 100%);min-height:100vh}
-#MainMenu,footer,header{visibility:hidden}
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,500;9..144,700&family=Inter:wght@400;500;600&display=swap');
 
-.dash-header{display:flex;align-items:center;gap:16px;margin-bottom:8px}
-.dash-icon{width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,#6c63ff,#00c9a7);display:flex;align-items:center;justify-content:center;font-size:26px}
-.dash-title{font-size:28px;font-weight:700;color:#e8eaf6;margin:0}
-.dash-subtitle{font-size:14px;color:#8b90a7;margin:2px 0 0}
-.glow-bar{height:2px;border-radius:1px;background:linear-gradient(90deg,#6c63ff,#00c9a7);margin:18px 0 28px;opacity:.7}
+:root {
+  --paper: #f6f3ec;
+  --paper-2: #efeadf;
+  --ink: #1c1a17;
+  --ink-soft: #4a463f;
+  --muted: #8a8478;
+  --rule: #d9d3c4;
+  --accent: #b4532a;
+  --good: #3f7d4e;
+  --warn: #c08a2a;
+  --bad: #a33a2a;
+}
 
-.api-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.04em}
-.api-ok{background:rgba(0,201,167,.12);color:#00c9a7;border:.5px solid rgba(0,201,167,.4)}
-.api-bad{background:rgba(255,107,107,.12);color:#ff6b6b;border:.5px solid rgba(255,107,107,.4)}
-.api-unk{background:rgba(139,144,167,.12);color:#8b90a7;border:.5px solid rgba(139,144,167,.4)}
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+.stApp { background: var(--paper); color: var(--ink); }
 
-.section-title{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#8b90a7;margin-bottom:18px;display:flex;align-items:center;gap:8px}
-.section-title .dot{width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#6c63ff,#00c9a7);display:inline-block}
+#MainMenu, footer, header { visibility: hidden; }
 
-.report-card{background:#1a1d27;border:.5px solid #2a2d3e;border-radius:14px;padding:24px 28px;margin-top:24px}
-.report-title{font-size:16px;font-weight:700;color:#e8eaf6;margin-bottom:4px}
-.report-subtitle{font-size:12px;color:#8b90a7;margin-bottom:20px}
-.report-section{margin-bottom:20px}
-.report-section-title{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#6c63ff;margin-bottom:10px;border-bottom:.5px solid #2a2d3e;padding-bottom:6px}
-.report-row{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;border-bottom:.5px solid #1e2130}
-.report-row .label{color:#8b90a7}
-.report-row .value{color:#e8eaf6;font-weight:500}
-.report-row .value.good{color:#00c9a7}
-.report-row .value.warn{color:#ffa94d}
-.report-row .value.flag{color:#ff6b6b}
+section[data-testid="stSidebar"] {
+  background: var(--paper-2);
+  border-right: 1px solid var(--rule);
+}
+section[data-testid="stSidebar"] * { color: var(--ink) !important; }
 
-.score-badge{display:inline-block;padding:6px 16px;border-radius:20px;font-size:13px;font-weight:600;margin-top:8px}
-.score-low{background:rgba(0,201,167,.15);color:#00c9a7;border:.5px solid rgba(0,201,167,.4)}
-.score-med{background:rgba(255,169,77,.15);color:#ffa94d;border:.5px solid rgba(255,169,77,.4)}
-.score-high{background:rgba(255,107,107,.15);color:#ff6b6b;border:.5px solid rgba(255,107,107,.4)}
+h1, h2, h3, .display { font-family: 'Fraunces', serif; font-weight: 500; letter-spacing: -0.01em; color: var(--ink); }
 
-.factor-row{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:13px;border-bottom:.5px solid #1e2130}
-.factor-icon{font-size:15px}
-.factor-label{color:#8b90a7;flex:1}
-.factor-impact{font-weight:500}
-.impact-neg{color:#ff6b6b}
-.impact-pos{color:#00c9a7}
-.impact-neu{color:#ffa94d}
+.masthead {
+  display:flex; align-items:flex-end; justify-content:space-between;
+  border-bottom: 1px solid var(--rule); padding-bottom: 14px; margin-bottom: 28px;
+}
+.masthead .brand { font-family: 'Fraunces', serif; font-size: 34px; font-weight: 500; letter-spacing: -0.02em; }
+.masthead .brand .dot { color: var(--accent); }
+.masthead .kicker { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
 
-div[data-testid="stNumberInput"] input{background:#12141e!important;border:.5px solid #2a2d3e!important;border-radius:8px!important;color:#e8eaf6!important;font-size:15px!important;font-weight:500!important}
-div[data-testid="stNumberInput"] input:focus{border-color:#6c63ff!important;box-shadow:0 0 0 2px rgba(108,99,255,.2)!important}
-div[data-testid="stNumberInput"] button{background:#1a1d27!important;border:.5px solid #2a2d3e!important;color:#8b90a7!important;border-radius:6px!important}
-div[data-testid="stNumberInput"] button:hover{background:#2a2d3e!important;color:#e8eaf6!important}
-label,.stSlider label,.stNumberInput label{color:#8b90a7!important;font-size:12px!important;font-weight:500!important;letter-spacing:.03em!important}
-div[data-testid="stSlider"]>div>div>div{background:linear-gradient(90deg,#6c63ff,#00c9a7)!important}
-div[data-testid="stSlider"] [data-testid="stThumbValue"]{color:#6c63ff!important;font-weight:600!important}
-hr{border-color:#2a2d3e!important;margin:24px 0!important}
+.pill { display:inline-flex; align-items:center; gap:8px; padding:4px 10px; border:1px solid var(--rule); border-radius: 999px; font-size:12px; color: var(--ink-soft); background: var(--paper); }
+.pill .dotled { width:6px; height:6px; border-radius:50%; background: var(--muted); }
+.pill.ok .dotled { background: var(--good); }
+.pill.err .dotled { background: var(--bad); }
 
-div[data-testid="stButton"]>button,div[data-testid="stFormSubmitButton"]>button{background:linear-gradient(135deg,#6c63ff 0%,#845ef7 50%,#00c9a7 100%)!important;color:#fff!important;border:none!important;border-radius:12px!important;font-size:15px!important;font-weight:600!important;padding:14px 0!important;letter-spacing:.04em!important;transition:opacity .15s,transform .12s!important;width:100%!important}
-div[data-testid="stButton"]>button:hover,div[data-testid="stFormSubmitButton"]>button:hover{opacity:.88!important;transform:translateY(-1px)!important}
-div[data-testid="stDownloadButton"]>button{background:#1a1d27!important;color:#e8eaf6!important;border:.5px solid #2a2d3e!important;border-radius:10px!important;font-weight:500!important}
-div[data-testid="stDownloadButton"]>button:hover{border-color:#6c63ff!important;color:#fff!important}
+.section-label { font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
 
-div[data-testid="stMetric"]{background:#12141e!important;border:.5px solid #2a2d3e!important;border-radius:10px!important;padding:16px!important}
-div[data-testid="stMetricLabel"]{color:#8b90a7!important;font-size:11px!important;text-transform:uppercase!important;letter-spacing:.06em!important}
-div[data-testid="stMetricValue"]{color:#00c9a7!important;font-size:26px!important;font-weight:700!important}
-div[data-testid="stAlert"]{border-radius:10px!important;border:.5px solid!important}
-h3{color:#e8eaf6!important;font-size:14px!important;font-weight:600!important;letter-spacing:.04em!important;text-transform:uppercase!important}
-div[data-testid="stHorizontalBlock"]{gap:20px!important}
+.card {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 22px 24px;
+}
+.card.tinted { background: var(--paper-2); }
+
+.score-hero {
+  display:flex; align-items:baseline; gap:18px;
+  border-bottom: 1px solid var(--rule); padding-bottom: 18px; margin-bottom: 18px;
+}
+.score-hero .num { font-family:'Fraunces',serif; font-size: 96px; line-height: 1; font-weight: 500; }
+.score-hero .meta { color: var(--ink-soft); }
+.score-hero .meta strong { font-weight: 600; }
+
+.verdict { display:inline-block; padding: 6px 12px; border-radius: 2px; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; }
+.verdict.low { background: rgba(63,125,78,.12); color: var(--good); border: 1px solid rgba(63,125,78,.3); }
+.verdict.med { background: rgba(192,138,42,.12); color: var(--warn); border: 1px solid rgba(192,138,42,.3); }
+.verdict.high { background: rgba(163,58,42,.12); color: var(--bad); border: 1px solid rgba(163,58,42,.3); }
+
+.kv { display:grid; grid-template-columns: 1fr auto; gap:6px 12px; font-size: 13px; }
+.kv .k { color: var(--muted); }
+.kv .v { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+.row { display:flex; align-items:center; justify-content:space-between; padding: 10px 0; border-bottom: 1px dashed var(--rule); }
+.row:last-child { border-bottom: none; }
+.row .lbl { color: var(--ink-soft); font-size: 13px; }
+.row .val { font-family:'Fraunces',serif; font-size: 18px; }
+
+.note { font-size: 13px; color: var(--ink-soft); line-height: 1.65; }
+
+.stButton > button {
+  background: var(--ink); color: var(--paper); border: none; border-radius: 2px;
+  padding: 10px 18px; font-weight: 500; letter-spacing: 0.04em;
+}
+.stButton > button:hover { background: var(--accent); color: white; }
+
+.stTabs [data-baseweb="tab-list"] { gap: 4px; border-bottom: 1px solid var(--rule); }
+.stTabs [data-baseweb="tab"] { background: transparent; color: var(--muted); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
+.stTabs [aria-selected="true"] { color: var(--ink) !important; border-bottom: 2px solid var(--accent) !important; }
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Session state
-# ──────────────────────────────────────────────────────────────────────────────
-ss = st.session_state
-ss.setdefault("result", None)         # last successful prediction payload
-ss.setdefault("inputs", None)         # inputs used for the last prediction
-ss.setdefault("history", [])          # list of past predictions (this session)
-ss.setdefault("error", None)
-
-
-# ──────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 # Helpers
-# ──────────────────────────────────────────────────────────────────────────────
-@st.cache_data(ttl=30, show_spinner=False)
-def check_api_health(base_url: str) -> tuple[bool, str]:
-    """Lightweight health probe — cached so we don't hammer the API on rerun."""
-    base = base_url.rstrip("/")
-    for path in ("/health", "/docs", "/"):
-        try:
-            r = requests.get(base + path, timeout=3)
-            if r.status_code < 500:
-                return True, f"reachable ({r.status_code})"
-        except requests.RequestException:
-            continue
-    return False, "unreachable"
+# ---------------------------------------------------------------------------
+@st.cache_data(ttl=20)
+def check_api() -> tuple[bool, str]:
+    try:
+        r = requests.get(f"{API_URL}/", timeout=3)
+        return (r.status_code < 500, f"{r.status_code}")
+    except Exception as e:  # noqa: BLE001
+        return (False, type(e).__name__)
 
 
-def validate(inputs: dict[str, float | int]) -> list[str]:
-    errors: list[str] = []
-    if inputs["loan_amnt"] <= 0:
-        errors.append("Loan amount must be greater than 0.")
-    if inputs["annual_inc"] <= 0:
-        errors.append("Annual income must be greater than 0.")
-    if inputs["loan_amnt"] > inputs["annual_inc"] * 10:
-        errors.append("Loan amount exceeds 10× annual income — please verify.")
-    if inputs["mort_acc"] > inputs["total_acc"]:
-        errors.append("Mortgage accounts cannot exceed total accounts.")
-    if not 0 <= inputs["int_rate"] <= 50:
-        errors.append("Interest rate looks out of range (0–50%).")
-    if not 0 <= inputs["dti"] <= 100:
-        errors.append("DTI looks out of range (0–100).")
-    return errors
+def validate(d: dict[str, float]) -> list[str]:
+    errs = []
+    if d["annual_inc"] > 0 and d["loan_amnt"] > 10 * d["annual_inc"]:
+        errs.append("Loan amount exceeds 10× annual income.")
+    if d["mort_acc"] > d["total_acc"]:
+        errs.append("Mortgage accounts cannot exceed total accounts.")
+    if not (0 <= d["int_rate"] <= 50):
+        errs.append("Interest rate must be between 0 and 50%.")
+    if not (0 <= d["dti"] <= 100):
+        errs.append("DTI must be between 0 and 100%.")
+    return errs
 
 
-def call_predict(inputs: dict[str, Any]) -> dict[str, Any]:
-    endpoint = f"{API_URL.rstrip('/')}/predict"
-    r = requests.post(endpoint, json=inputs, timeout=REQUEST_TIMEOUT)
+def call_predict(payload: dict[str, float]) -> dict[str, Any]:
+    r = requests.post(f"{API_URL}/predict", json=payload, timeout=API_TIMEOUT)
     r.raise_for_status()
-    data = r.json()
-    for k in ("default_probability", "credit_score", "risk"):
-        if k not in data:
-            raise ValueError(f"API response missing required field: {k}")
-    return data
+    return r.json()
 
 
-def risk_styling(risk: str) -> tuple[str, str, str]:
-    r = (risk or "").lower()
-    if r.startswith("low"):
-        return "score-low", "✅", "Low risk applicant — strong credit profile."
-    if r.startswith("med") or r.startswith("mod"):
-        return "score-med", "⚠️", "Moderate risk applicant — review carefully."
-    return "score-high", "❌", "High risk applicant — significant default indicators detected."
+def risk_class(level: str) -> str:
+    l = (level or "").strip().lower()
+    if "low" in l: return "low"
+    if "high" in l: return "high"
+    return "med"
 
 
-def rate_factor(label: str, value, low: float, high: float, higher_is_bad: bool = True) -> str:
-    if higher_is_bad:
-        if value <= low:
-            cls, icon, impact = "impact-pos", "✅", "Low impact"
-        elif value <= high:
-            cls, icon, impact = "impact-neu", "⚠️", "Moderate impact"
-        else:
-            cls, icon, impact = "impact-neg", "🔴", "High impact"
-    else:
-        if value >= high:
-            cls, icon, impact = "impact-pos", "✅", "Positive factor"
-        elif value >= low:
-            cls, icon, impact = "impact-neu", "⚠️", "Moderate factor"
-        else:
-            cls, icon, impact = "impact-neg", "🔴", "Weak factor"
-    return (
-        f'<div class="factor-row">'
-        f'<span class="factor-icon">{icon}</span>'
-        f'<span class="factor-label">{label} — <b style="color:#e8eaf6">{value}</b></span>'
-        f'<span class="factor-impact {cls}">{impact}</span>'
-        f"</div>"
+def gauge(score: float) -> go.Figure:
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=float(score),
+        number={"font": {"family": "Fraunces", "size": 38, "color": "#1c1a17"}},
+        gauge={
+            "axis": {"range": [300, 850], "tickcolor": "#8a8478", "tickfont": {"color": "#8a8478", "size": 11}},
+            "bar": {"color": "#1c1a17", "thickness": 0.18},
+            "bgcolor": "rgba(0,0,0,0)",
+            "borderwidth": 0,
+            "steps": [
+                {"range": [300, 580], "color": "rgba(163,58,42,.18)"},
+                {"range": [580, 670], "color": "rgba(192,138,42,.18)"},
+                {"range": [670, 740], "color": "rgba(63,125,78,.14)"},
+                {"range": [740, 850], "color": "rgba(63,125,78,.28)"},
+            ],
+        },
+    ))
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        height=260, margin=dict(l=10, r=10, t=10, b=10),
     )
+    return fig
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Header + API status
-# ──────────────────────────────────────────────────────────────────────────────
-api_ok, api_msg = check_api_health(API_URL)
-pill_cls = "api-ok" if api_ok else "api-bad"
-pill_dot = "🟢" if api_ok else "🔴"
+# ---------------------------------------------------------------------------
+# State
+# ---------------------------------------------------------------------------
+ss = st.session_state
+ss.setdefault("result", None)
+ss.setdefault("inputs", None)
+ss.setdefault("error", None)
+ss.setdefault("history", [])
 
+# ---------------------------------------------------------------------------
+# Sidebar — inputs
+# ---------------------------------------------------------------------------
+with st.sidebar:
+    st.markdown('<div class="section-label">Applicant File</div>', unsafe_allow_html=True)
+    st.markdown('<h2 style="margin:0 0 14px 0; font-size:22px;">New Assessment</h2>', unsafe_allow_html=True)
+
+    with st.form("applicant_form", clear_on_submit=False):
+        values: dict[str, float] = {}
+        for key, label, unit, lo, hi, default, step in FIELDS:
+            values[key] = st.number_input(
+                f"{label} ({unit})",
+                min_value=lo, max_value=hi, value=float(default), step=step,
+                key=f"in_{key}",
+            )
+        c1, c2 = st.columns([1, 1])
+        submitted = c1.form_submit_button("Score", use_container_width=True)
+        reset = c2.form_submit_button("Reset", use_container_width=True)
+
+    if reset:
+        for key, *_ in FIELDS:
+            ss.pop(f"in_{key}", None)
+        ss.result = ss.inputs = ss.error = None
+        st.rerun()
+
+    st.markdown("<hr style='border-color:var(--rule); margin: 18px 0;'/>", unsafe_allow_html=True)
+    st.markdown('<div class="section-label">API</div>', unsafe_allow_html=True)
+    st.text_input("Endpoint", value=API_URL, disabled=True, label_visibility="collapsed")
+    ok, info = check_api()
+    cls = "ok" if ok else "err"
+    st.markdown(f'<span class="pill {cls}"><span class="dotled"></span>{"Online" if ok else "Offline"} · {info}</span>', unsafe_allow_html=True)
+
+# ---------------------------------------------------------------------------
+# Header
+# ---------------------------------------------------------------------------
 st.markdown(
     f"""
-<div class="dash-header">
-  <div class="dash-icon">💳</div>
-  <div style="flex:1">
-    <p class="dash-title">AI Credit Scoring</p>
-    <p class="dash-subtitle">Loan default risk prediction using machine learning</p>
+<div class="masthead">
+  <div>
+    <div class="kicker">Vol. {datetime.now():%Y · %m · %d}</div>
+    <div class="brand">Lumen<span class="dot">.</span> Credit Review</div>
   </div>
-  <span class="api-pill {pill_cls}">{pill_dot} API {api_msg}</span>
+  <div class="kicker">Underwriting Desk · Confidential</div>
 </div>
-<div class="glow-bar"></div>
 """,
     unsafe_allow_html=True,
 )
 
-if not api_ok:
-    st.warning(
-        f"Prediction API at `{API_URL}` is not reachable. "
-        "Start your FastAPI server or set `API_URL` to the correct endpoint.",
-        icon="⚠️",
-    )
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Input form (one rerun on submit instead of one per keystroke)
-# ──────────────────────────────────────────────────────────────────────────────
-with st.form("applicant_form", clear_on_submit=False):
-    col1, col2 = st.columns([1, 1], gap="large")
-
-    with col1:
-        st.markdown(
-            '<div class="section-title"><span class="dot"></span> Applicant Information</div>',
-            unsafe_allow_html=True,
-        )
-        loan_amnt = st.number_input("Loan Amount ($)", value=15000, step=500, min_value=1000, max_value=1_000_000)
-        annual_inc = st.number_input("Annual Income ($)", value=65000, step=1000, min_value=1000, max_value=10_000_000)
-        int_rate = st.slider("Interest Rate (%)", 0.0, 30.0, 11.5, step=0.1)
-        dti = st.slider("Debt-To-Income Ratio", 0.0, 50.0, 18.2, step=0.1)
-
-    with col2:
-        st.markdown(
-            '<div class="section-title"><span class="dot"></span> Credit Details</div>',
-            unsafe_allow_html=True,
-        )
-        total_acc = st.number_input("Total Accounts", value=22, step=1, min_value=0, max_value=200)
-        mort_acc = st.number_input("Mortgage Accounts", value=2, step=1, min_value=0, max_value=50)
-        pub_rec_bankruptcies = st.number_input("Past Bankruptcies", value=0, step=1, min_value=0, max_value=20)
-
-    st.divider()
-    btn_col1, btn_col2 = st.columns([3, 1])
-    with btn_col1:
-        submitted = st.form_submit_button("⚡   Predict Credit Score", use_container_width=True)
-    with btn_col2:
-        reset = st.form_submit_button("Reset", use_container_width=True)
-
-if reset:
-    ss.result = None
-    ss.inputs = None
-    ss.error = None
-    st.rerun()
-
-# ──────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 # Submit handling
-# ──────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 if submitted:
-    inputs = {
-        "loan_amnt": float(loan_amnt),
-        "int_rate": float(int_rate),
-        "annual_inc": float(annual_inc),
-        "dti": float(dti),
-        "total_acc": int(total_acc),
-        "mort_acc": int(mort_acc),
-        "pub_rec_bankruptcies": int(pub_rec_bankruptcies),
-    }
-    errs = validate(inputs)
+    ss.error = None
+    errs = validate(values)
     if errs:
+        ss.error = " · ".join(errs)
         ss.result = None
-        ss.error = "  •  ".join(errs)
     else:
-        ss.error = None
         try:
             with st.spinner("Scoring applicant…"):
-                ss.result = call_predict(inputs)
-                ss.inputs = inputs
-                ss.history.append(
-                    {
-                        "ts": datetime.now().isoformat(timespec="seconds"),
-                        "inputs": inputs,
-                        "result": ss.result,
-                    }
-                )
-                ss.history = ss.history[-10:]  # keep last 10
-        except requests.exceptions.ConnectionError:
-            ss.result = None
-            ss.error = f"Could not connect to the prediction API at {API_URL}."
-        except requests.exceptions.Timeout:
-            ss.result = None
-            ss.error = f"API timed out after {REQUEST_TIMEOUT}s. Try again."
-        except requests.exceptions.HTTPError as e:
-            ss.result = None
+                ss.result = call_predict(values)
+                ss.inputs = values
+                ss.history.insert(0, {
+                    "at": datetime.now().strftime("%H:%M:%S"),
+                    "inputs": values, "result": ss.result,
+                })
+                ss.history = ss.history[:10]
+        except requests.ConnectionError:
+            ss.error = "Cannot reach the prediction API. Confirm the server is running."
+        except requests.Timeout:
+            ss.error = f"Request timed out after {API_TIMEOUT}s."
+        except requests.HTTPError as e:
             body = ""
-            try:
-                body = e.response.text[:300] if e.response is not None else ""
-            except Exception:
-                pass
-            ss.error = f"API error {e.response.status_code if e.response else ''}: {body or str(e)}"
-        except (ValueError, json.JSONDecodeError) as e:
-            ss.result = None
-            ss.error = f"Invalid API response: {e}"
+            try: body = e.response.text[:300]
+            except Exception: pass
+            ss.error = f"API returned {e.response.status_code}. {body}"
+        except (ValueError, json.JSONDecodeError):
+            ss.error = "API returned an invalid JSON response."
+        except Exception as e:  # noqa: BLE001
+            ss.error = f"Unexpected error: {e}"
 
 if ss.error:
-    st.error(ss.error)
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Results
-# ──────────────────────────────────────────────────────────────────────────────
-if ss.result and ss.inputs:
-    result = ss.result
-    inp = ss.inputs
-
-    prob = float(result["default_probability"])
-    score = int(result["credit_score"])
-    risk = str(result["risk"])
-    badge_cls, badge_icon, recommendation = risk_styling(risk)
-
     st.markdown(
-        '<div class="section-title" style="margin-top:8px"><span class="dot"></span> Prediction Results</div>',
+        f'<div class="card" style="border-color: rgba(163,58,42,.5); color: var(--bad);">'
+        f'<strong>Could not score.</strong> {ss.error}</div>',
         unsafe_allow_html=True,
     )
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Default Probability", f"{prob * 100:.1f}%")
-    c2.metric("Credit Score", f"{score}")
-    c3.metric("Risk Level", risk)
+# ---------------------------------------------------------------------------
+# Empty state
+# ---------------------------------------------------------------------------
+if not ss.result:
+    left, right = st.columns([1.2, 1])
+    with left:
+        st.markdown(
+            """
+<div class="card tinted" style="padding:38px;">
+  <div class="kicker" style="color:var(--muted); font-size:11px; letter-spacing:.22em; text-transform:uppercase;">Awaiting File</div>
+  <h1 style="font-size:44px; line-height:1.05; margin:10px 0 14px 0;">A quiet, deliberate look at credit risk.</h1>
+  <p class="note" style="max-width:52ch;">
+    Enter the applicant's particulars in the sidebar and press <em>Score</em>. The desk will return a
+    composite score, a risk band, and a short underwriter's note. No data leaves your machine beyond the
+    configured API.
+  </p>
+</div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with right:
+        st.markdown('<div class="section-label">Fields Required</div>', unsafe_allow_html=True)
+        rows = "".join(
+            f'<div class="row"><span class="lbl">{label}</span><span class="val">{unit}</span></div>'
+            for _, label, unit, *_ in FIELDS
+        )
+        st.markdown(f'<div class="card">{rows}</div>', unsafe_allow_html=True)
+    st.stop()
 
-    {"Low": st.success, "Medium": st.warning}.get(risk, st.error)(
-        f"{badge_icon}  {recommendation}"
-    )
+# ---------------------------------------------------------------------------
+# Results
+# ---------------------------------------------------------------------------
+res = ss.result
+score = float(res.get("credit_score", res.get("score", 0)))
+risk = str(res.get("risk_level", res.get("risk", "Medium")))
+recommendation = str(res.get("recommendation", res.get("note", "No recommendation provided.")))
+rc = risk_class(risk)
 
-    # Charts
-    ch1, ch2, ch3 = st.columns(3)
+tab_summary, tab_factors, tab_raw, tab_history = st.tabs(["Summary", "Factors", "Raw response", "Session log"])
 
-    with ch1:
-        gauge_color = "#00c9a7" if score >= 750 else ("#ffa94d" if score >= 650 else "#ff6b6b")
-        fig = go.Figure(
-            go.Indicator(
-                mode="gauge+number",
-                value=score,
-                title={"text": "Credit Score", "font": {"color": "#8b90a7", "size": 13}},
-                number={"font": {"color": gauge_color, "size": 36}},
-                gauge={
-                    "axis": {"range": [300, 850], "tickcolor": "#8b90a7", "tickfont": {"color": "#8b90a7", "size": 10}},
-                    "bar": {"color": gauge_color, "thickness": 0.3},
-                    "bgcolor": "#12141e",
-                    "bordercolor": "#2a2d3e",
-                    "steps": [
-                        {"range": [300, 650], "color": "rgba(255,107,107,0.15)"},
-                        {"range": [650, 750], "color": "rgba(255,169,77,0.15)"},
-                        {"range": [750, 850], "color": "rgba(0,201,167,0.15)"},
-                    ],
-                    "threshold": {"line": {"color": gauge_color, "width": 3}, "thickness": 0.75, "value": score},
-                },
+with tab_summary:
+    a, b = st.columns([1.3, 1])
+    with a:
+        st.markdown(
+            f"""
+<div class="card">
+  <div class="section-label">Composite Score</div>
+  <div class="score-hero">
+    <div class="num">{int(round(score))}</div>
+    <div class="meta">
+      out of <strong>850</strong><br/>
+      <span class="verdict {rc}">{risk} risk</span>
+    </div>
+  </div>
+  <div class="note">{recommendation}</div>
+</div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with b:
+        st.plotly_chart(gauge(score), use_container_width=True, config={"displayModeBar": False})
+
+    st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
+    st.markdown('<div class="section-label">Applicant Snapshot</div>', unsafe_allow_html=True)
+    cols = st.columns(4)
+    inp = ss.inputs or {}
+    pretty = [
+        ("Loan", f"${inp.get('loan_amnt',0):,.0f}"),
+        ("Income", f"${inp.get('annual_inc',0):,.0f}"),
+        ("Rate", f"{inp.get('int_rate',0):.2f}%"),
+        ("DTI", f"{inp.get('dti',0):.1f}%"),
+        ("Accounts", f"{int(inp.get('total_acc',0))}"),
+        ("Mortgages", f"{int(inp.get('mort_acc',0))}"),
+        ("Bankruptcies", f"{int(inp.get('pub_rec_bankruptcies',0))}"),
+        ("Loan / Income", f"{(inp.get('loan_amnt',0)/inp.get('annual_inc',1) if inp.get('annual_inc') else 0):.2f}×"),
+    ]
+    for i, (k, v) in enumerate(pretty):
+        with cols[i % 4]:
+            st.markdown(
+                f'<div class="card" style="padding:14px 16px;">'
+                f'<div class="lbl" style="font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--muted);">{k}</div>'
+                f'<div class="val" style="font-size:22px; margin-top:6px;">{v}</div></div>',
+                unsafe_allow_html=True,
             )
-        )
-        fig.update_layout(
-            paper_bgcolor="rgba(26,29,39,1)", plot_bgcolor="rgba(26,29,39,1)",
-            font={"color": "#e8eaf6"}, height=220, margin=dict(l=20, r=20, t=40, b=10),
-        )
-        st.plotly_chart(fig, use_container_width=True)
 
-    with ch2:
-        safe_pct = round((1 - prob) * 100, 1)
-        risk_pct = round(prob * 100, 1)
-        fig = go.Figure()
-        fig.add_trace(go.Bar(name="Safe", x=["Probability"], y=[safe_pct], marker_color="#00c9a7", width=0.4))
-        fig.add_trace(go.Bar(name="Default Risk", x=["Probability"], y=[risk_pct], marker_color="#ff6b6b", width=0.4))
-        fig.update_layout(
-            barmode="stack",
-            title={"text": "Default Probability", "font": {"color": "#8b90a7", "size": 13}, "x": 0.5},
-            paper_bgcolor="rgba(26,29,39,1)", plot_bgcolor="rgba(26,29,39,1)",
-            font={"color": "#e8eaf6"}, height=220, margin=dict(l=20, r=20, t=40, b=10),
-            legend={"font": {"size": 11}, "bgcolor": "rgba(0,0,0,0)"},
-            yaxis={"range": [0, 100], "ticksuffix": "%", "gridcolor": "#2a2d3e", "tickfont": {"color": "#8b90a7"}},
-            xaxis={"tickfont": {"color": "#8b90a7"}},
-        )
-        fig.add_annotation(x=0, y=risk_pct / 2, text=f"{risk_pct}%", showarrow=False,
-                           font={"color": "#fff", "size": 14, "family": "Arial Black"})
-        st.plotly_chart(fig, use_container_width=True)
-
-    with ch3:
-        def norm(v, lo, hi):
-            return max(0.0, min(1.0, (v - lo) / (hi - lo)))
-
-        vals = [
-            norm(inp["annual_inc"], 20000, 150000),
-            norm(inp["total_acc"], 0, 40),
-            norm(inp["mort_acc"], 0, 5),
-            1 - norm(inp["int_rate"], 0, 30),
-            1 - norm(inp["dti"], 0, 50),
-            1 - norm(inp["pub_rec_bankruptcies"], 0, 3),
-        ]
-        cats = ["Income", "Accounts", "Mortgage", "Low Rate", "Low DTI", "No Bankrupt"]
-        pct = [round(v * 100) for v in vals]
-        fig = go.Figure(
-            go.Scatterpolar(
-                r=pct + [pct[0]], theta=cats + [cats[0]], fill="toself",
-                fillcolor="rgba(108,99,255,0.2)",
-                line={"color": "#6c63ff", "width": 2},
-                marker={"color": "#6c63ff", "size": 5},
-            )
-        )
-        fig.update_layout(
-            polar={
-                "radialaxis": {"visible": True, "range": [0, 100], "gridcolor": "#2a2d3e",
-                               "tickfont": {"color": "#8b90a7", "size": 9}},
-                "angularaxis": {"tickfont": {"color": "#8b90a7", "size": 10}, "gridcolor": "#2a2d3e"},
-                "bgcolor": "rgba(18,20,30,1)",
-            },
-            title={"text": "Risk Factor Radar", "font": {"color": "#8b90a7", "size": 13}, "x": 0.5},
-            paper_bgcolor="rgba(26,29,39,1)", font={"color": "#e8eaf6"},
-            height=220, margin=dict(l=30, r=30, t=40, b=10), showlegend=False,
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-    # ── Report ────────────────────────────────────────────────────────────────
-    now = datetime.now().strftime("%d %B %Y, %I:%M %p")
-    bk_color = "#ff6b6b" if inp["pub_rec_bankruptcies"] > 0 else "#00c9a7"
-    lti = round(inp["loan_amnt"] / inp["annual_inc"], 2) if inp["annual_inc"] else 0
-
-    factors_html = (
-        rate_factor("Interest Rate", inp["int_rate"], 10, 20, True)
-        + rate_factor("Debt-to-Income Ratio", inp["dti"], 15, 30, True)
-        + rate_factor("Loan-to-Income Ratio", lti, 0.2, 0.5, True)
-        + rate_factor("Total Accounts", inp["total_acc"], 10, 20, False)
-        + rate_factor("Mortgage Accounts", inp["mort_acc"], 1, 3, False)
-        + rate_factor("Past Bankruptcies", inp["pub_rec_bankruptcies"], 0, 0, True)
-    )
-
-    report_html = f"""
-<div class="report-card">
-  <div class="report-title">📋 Credit Risk Report</div>
-  <div class="report-subtitle">Generated on {now}</div>
-
-  <div class="report-section">
-    <div class="report-section-title">Summary</div>
-    <div class="report-row"><span class="label">Credit Score</span><span class="value">{score} / 850</span></div>
-    <div class="report-row"><span class="label">Default Probability</span><span class="value">{round(prob*100,1)}%</span></div>
-    <div class="report-row"><span class="label">Risk Classification</span>
-      <span class="score-badge {badge_cls}">{badge_icon} {risk} Risk</span></div>
+with tab_factors:
+    st.markdown('<div class="section-label">Indicative Factor Read</div>', unsafe_allow_html=True)
+    inp = ss.inputs or {}
+    factors = [
+        ("Interest rate", inp.get("int_rate", 0), 8, 18, "lower is better"),
+        ("Debt-to-income", inp.get("dti", 0), 15, 35, "lower is better"),
+        ("Bankruptcies", inp.get("pub_rec_bankruptcies", 0), 0, 1, "lower is better"),
+        ("Mortgage accounts", inp.get("mort_acc", 0), 0, 3, "higher signals stability"),
+        ("Total accounts", inp.get("total_acc", 0), 5, 25, "moderate is best"),
+    ]
+    for name, val, good, bad, hint in factors:
+        if good <= bad:
+            pct = max(0.0, min(1.0, (float(val) - good) / max(1e-9, (bad - good))))
+        else:
+            pct = max(0.0, min(1.0, (good - float(val)) / max(1e-9, (good - bad))))
+        color = "var(--good)" if pct < 0.34 else "var(--warn)" if pct < 0.67 else "var(--bad)"
+        st.markdown(
+            f"""
+<div class="card" style="margin-bottom:10px;">
+  <div style="display:flex; justify-content:space-between; align-items:baseline;">
+    <div><strong>{name}</strong> <span class="lbl" style="color:var(--muted); font-size:12px; margin-left:8px;">{hint}</span></div>
+    <div class="val">{val}</div>
   </div>
-
-  <div class="report-section">
-    <div class="report-section-title">Applicant Data</div>
-    <div class="report-row"><span class="label">Loan Amount</span><span class="value">${inp['loan_amnt']:,.0f}</span></div>
-    <div class="report-row"><span class="label">Annual Income</span><span class="value">${inp['annual_inc']:,.0f}</span></div>
-    <div class="report-row"><span class="label">Interest Rate</span><span class="value">{inp['int_rate']}%</span></div>
-    <div class="report-row"><span class="label">Debt-to-Income Ratio</span><span class="value">{inp['dti']}</span></div>
-    <div class="report-row"><span class="label">Total Accounts</span><span class="value">{inp['total_acc']}</span></div>
-    <div class="report-row"><span class="label">Mortgage Accounts</span><span class="value">{inp['mort_acc']}</span></div>
-    <div class="report-row"><span class="label">Past Bankruptcies</span>
-      <span class="value" style="color:{bk_color}">{inp['pub_rec_bankruptcies']}</span></div>
-  </div>
-
-  <div class="report-section">
-    <div class="report-section-title">Factor Analysis</div>
-    {factors_html}
-  </div>
-
-  <div class="report-section">
-    <div class="report-section-title">How the Score was Calculated</div>
-    <div class="report-row"><span class="label">Base Score</span><span class="value">300</span></div>
-    <div class="report-row"><span class="label">ML Model Adjustment</span><span class="value">+{score-300} pts (default prob {round(prob*100,1)}%)</span></div>
-    <div class="report-row"><span class="label">Formula</span><span class="value">300 + (1 - {round(prob,3)}) x 550</span></div>
-    <div class="report-row"><span class="label">Final Score</span><span class="value good">{score}</span></div>
-  </div>
-
-  <div class="report-section" style="margin-bottom:0">
-    <div class="report-section-title">Recommendation</div>
-    <p style="color:#c8cad8;font-size:13px;line-height:1.6;margin:0">{recommendation}</p>
+  <div style="height:6px; background:var(--paper-2); border-radius:2px; margin-top:10px; overflow:hidden;">
+    <div style="height:100%; width:{pct*100:.0f}%; background:{color};"></div>
   </div>
 </div>
-"""
-    st.markdown(report_html, unsafe_allow_html=True)
+            """,
+            unsafe_allow_html=True,
+        )
 
-    # Downloads
-    dl1, dl2 = st.columns(2)
-    payload = {"generated_at": now, "inputs": inp, "result": result}
-    dl1.download_button(
-        "⬇️  Download JSON",
-        data=json.dumps(payload, indent=2),
-        file_name=f"credit_report_{datetime.now():%Y%m%d_%H%M%S}.json",
+with tab_raw:
+    st.markdown('<div class="section-label">API Response</div>', unsafe_allow_html=True)
+    st.code(json.dumps(res, indent=2), language="json")
+    st.download_button(
+        "Download JSON",
+        data=json.dumps({"inputs": ss.inputs, "result": res, "at": datetime.now().isoformat()}, indent=2),
+        file_name=f"credit_score_{datetime.now():%Y%m%d_%H%M%S}.json",
         mime="application/json",
-        use_container_width=True,
-    )
-    dl2.download_button(
-        "⬇️  Download HTML report",
-        data=f"<html><head><meta charset='utf-8'><title>Credit Report</title></head><body style='background:#0f1117;padding:24px'>{report_html}</body></html>",
-        file_name=f"credit_report_{datetime.now():%Y%m%d_%H%M%S}.html",
-        mime="text/html",
-        use_container_width=True,
     )
 
-    # History
-    if len(ss.history) > 1:
-        with st.expander(f"Session history ({len(ss.history)} predictions)"):
-            for i, h in enumerate(reversed(ss.history), 1):
-                r = h["result"]
-                st.markdown(
-                    f"**{i}.** `{h['ts']}` — score **{r.get('credit_score','?')}**, "
-                    f"risk **{r.get('risk','?')}**, "
-                    f"prob **{float(r.get('default_probability',0))*100:.1f}%**"
-                )
-else:
-    if not ss.error:
-        st.info("Enter applicant details above and click **Predict Credit Score** to generate a report.", icon="💡")
+with tab_history:
+    if not ss.history:
+        st.markdown('<div class="note">No prior runs in this session.</div>', unsafe_allow_html=True)
+    else:
+        for h in ss.history:
+            r = h["result"]; s = float(r.get("credit_score", r.get("score", 0)))
+            lv = str(r.get("risk_level", r.get("risk", "—")))
+            st.markdown(
+                f'<div class="row"><span class="lbl">{h["at"]} · loan ${h["inputs"]["loan_amnt"]:,.0f} · dti {h["inputs"]["dti"]:.1f}%</span>'
+                f'<span class="val">{int(round(s))} · <span class="verdict {risk_class(lv)}">{lv}</span></span></div>',
+                unsafe_allow_html=True,
+            )
